@@ -1,17 +1,28 @@
+import sys
 import socket
 
-HOST = "127.0.0.1"
-PORT = 8081
 
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.bind((HOST, PORT))
-    s.listen()
-    conn, addr = s.accept()
-    with conn:
-        print(f"connected by {addr}")
+def server_program():
+    HOST, PORT = sys.argv[1], int(sys.argv[2])
+    server_socket = socket.socket()
+    server_socket.bind((HOST, PORT))
+    server_socket.listen(2)
+    conn, address = server_socket.accept()
+    print("Connection from: " + str(address))
+    try:
         while True:
-            data = conn.recv(1024)
+            data = conn.recv(1024).decode()
             if not data:
                 break
-            conn.sendall(data)
+            print("From connected user: " + str(data))
+            data = input(' -> ')
+            conn.send(data.encode())
+    except KeyboardInterrupt:
+        print("Ctrl-C caught, exiting.")
+    finally:
+        conn.close()
+
+
+if __name__ == '__main__':
+    server_program()
 
