@@ -8,7 +8,9 @@
 
 //Example code: A simple server side code, which echos back the received message.
 //Handle multiple socket connections with select and fd_set on Linux
+#include <algorithm>
 #include <stdio.h>
+#include <iostream>
 #include <stdlib.h>
 #include <string.h> //strlen
 #include <errno.h>
@@ -18,24 +20,54 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/time.h> //FD_SET, FD_ISSET, FD_ZERO macros
+#include <vector>
+#include <map>
+#include <string>
+#include "util.h"
+#include "defines.h"
 
-#define TRUE 1
-#define FALSE 0
-#define PORT 8081
+using namespace std;
+
+/* GLOBAL VARIABLES -- ooof */
+
+// Map of room name => users list (string names CSV)
+map<string, string> rooms;
+
+// Map of user names to 1
+map<string, int> users;
+
+
+class RawMessage {
+    public:
+        int sender_num; // The socket number who sent this msg
+        string msg;
+    RawMessage() {}
+    RawMessage(int sender_num, string msg)
+    {
+        this->sender_num = sender_num;
+        this->msg = msg;
+    }
+};
+
+/* Method Definitions */
+int handle_message(RawMessage rm, int* csock);
+
 
 // chat server
 int main(int argc , char *argv[])
 {
     int opt = TRUE;
-    int master_socket, addrlen, new_socket, client_socket[30],
-    max_clients = 30, activity, i, valread, sd;
+    int master_socket, addrlen, new_socket, client_socket[MAX_CLIENTS],
+    max_clients = MAX_CLIENTS, activity, i, valread, sd;
     int max_sd;
     struct sockaddr_in address;
-    // create array of 100 chat strings, max length 1025 each
-    char chat_strings[100][1025];
+
+    // strings of raw text sent to the server by clients
+    vector<RawMessage> chat_strings;
+
+    string sbuffer;
     int num_chat_strings = 0;
-    char buffer[1025]; //data buffer of 1K
-    char empty_str[] = "-nil-";
+    char buffer[MAX_RAW_MSG_SIZE]; //data buffer of 1K
 
     //set of socket descriptors
     fd_set readfds;
@@ -47,11 +79,6 @@ int main(int argc , char *argv[])
     for (i = 0; i < max_clients; i++)
     {
         client_socket[i] = 0;
-    }
-
-    // initialize chat strings buffer
-    for (i = 0; i < 100; i++) {
-        memcpy(chat_strings[i], empty_str, strlen(empty_str) + 1);
     }
 
     //create a master socket
@@ -164,8 +191,6 @@ int main(int argc , char *argv[])
             }
         }
 
-        num_chat_strings = 0;
-
         //else its some IO operation on some other socket
         // loop through received messages and add to vector
         for (i = 0; i < max_clients; i++)
@@ -176,7 +201,7 @@ int main(int argc , char *argv[])
             {
                 //Check if it was for closing , and also read the
                 //incoming message
-                if ((valread = read( sd , buffer, 1024)) == 0)
+                if ((valread = read( sd , buffer, MAX_MSG_SIZE)) == 0)
                 {
                     //Somebody disconnected , get his details and print
                     getpeername(sd , (struct sockaddr*)&address , \
@@ -195,24 +220,100 @@ int main(int argc , char *argv[])
                     //set the string terminating NULL byte on the end
                     //of the data read
                     buffer[valread] = '\0';
+                    printf("Storing message (%d) in vector\n", (int)strlen(buffer));
                     // +1 to strlen to include the NULL terminator byte
-                    memcpy(chat_strings[num_chat_strings], buffer, strlen(buffer) + 1);
+                    sbuffer.assign(buffer, strlen(buffer));
+                    chat_strings.push_back(RawMessage(i, sbuffer));
+                    // memcpy(chat_strings[num_chat_strings], buffer, strlen(buffer) + 1);
                     num_chat_strings++;
+                    printf("Stored message (%d) in vector\n", (int)strlen(buffer));
                 }
             }
         }
-        
-        // send any buffered messages to all connected clients
+
+        // handle messages
         for (i = 0; i < num_chat_strings; i++) {
-            for (int x = 0; x < max_clients; x++)
+            handle_message(chat_strings[i], client_socket);
+        }
+
+        num_chat_strings = 0;
+        chat_strings.clear();
+    }
+
+    return 0;
+}
+
+// csock: array of socket numbers
+int handle_message(RawMessage rm, int* csock)
+{
+    int sd, addrlen;
+    char command_type;
+    const char* error_msg = "ERROR: Invalid message format.\r\n";
+    const char* goodbye_msg = "Goodbye.\r\n";
+    char* raw_bytes;
+    struct sockaddr_in address;
+
+    addrlen = sizeof(address);
+
+    sd = csock[rm.sender_num];
+
+    if (FALSE == is_valid_message(rm.msg)) {
+        printf("Received message is NOT valid. Skipping...\n");
+        send(
+            sd,
+            error_msg,
+            strlen(error_msg),
+            0);
+
+        return 1;
+    }
+
+    raw_bytes = rm.msg.data();
+    command_type = raw_bytes[0];
+
+    if (command_type == 'Q') {
+        send(
+            sd,
+            goodbye_msg,
+            strlen(goodbye_msg),
+            0);
+        // Client requested to quit.
+        // get his details and print
+        getpeername(sd , (struct sockaddr*)&address , \
+                    (socklen_t*)&addrlen);
+        printf("Host disconnected , ip %s , port %d \n" ,
+               inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
+
+        //Close the socket and mark as 0 in list for reuse
+        close( sd );
+        csock[rm.sender_num] = 0;
+        return 0;
+    }
+
+    // Create Room
+    // C00video_games
+    if (command_type == 'C') {
+        string room_name = rm.msg.substr(3);
+        transform(room_name.begin(), room_name.end(), room_name.begin(), ::tolower);
+        cout << "Creating new room: " << room_name << "\n";
+        rooms.insert(pair<string, string>(room_name, ""));
+    }
+
+    if (command_type == 'M') {
+        // send any buffered messages to all connected clients
+        // But skip repeating it to the client who SENT the message.
+        for (int x = 0; x < MAX_CLIENTS; x++)
+        {
+            sd = csock[x];
+            if (sd != 0 && sd != rm.sender_num)
             {
-                sd = client_socket[x];
-                if (sd != 0)
-                {
-                    printf("Sending data to client %d\n", x);
-                    // sends strlen() number of bytes, which does NOT include \0 at the end
-                    send(sd, chat_strings[i], strlen(chat_strings[i]), 0);
-                }
+                printf("Sending data to client num. %d\n", x);
+                // sends strlen() number of bytes, which does NOT include \0 at the end
+                send(
+                    sd,
+                    rm.msg.data(),
+                    strlen(rm.msg.data()),
+                    0);
             }
         }
     }
