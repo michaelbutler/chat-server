@@ -5,8 +5,8 @@ CFLAGS = -g -Wall
 TARGET = server
 
 
-all: 
-	$(CC) $(CFLAGS) *.cpp -o $(TARGET) 
+all: server.cpp util.cpp
+	$(CC) $(CFLAGS) server.cpp util.cpp -o $(TARGET) 
 
 clean:
 	rm server 

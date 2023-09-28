@@ -1,10 +1,12 @@
 #include <iostream>
 #include <string>
+#include <system_error>
 #include "defines.h"
 #include "util.h"
 
 using namespace std;
 
+const char* wschars = " \t\n\r\f\v";
 
 // accept A-Z a-z 0-9 and _ for usernames and room names.
 int is_valid_entity_name(string name)
@@ -20,8 +22,10 @@ int is_valid_entity_name(string name)
             (bytes[i] >= '0' && bytes[i] <= '9') ||
                 bytes[i] == '_'
         ) {
+            printf("byte %d is valid\n", (int)bytes[i]);
             ; // it's valid
         } else {
+            printf("byte %d is not valid\n", (int)bytes[i]);
             return FALSE;
         }
     }
@@ -70,8 +74,8 @@ int is_valid_message(string msg)
         return FALSE;
     }
 
-    // Validate Join Command
-    if (bytes[0] == 'J') {
+    // Validate Create & Join Command
+    if (bytes[0] == 'J' || bytes[0] == 'C' || bytes[0] == 'U') {
         work_buffer = msg.substr(3);
         if (!is_valid_entity_name(work_buffer)) {
             debuglog("Invalid entity name provided.");
@@ -83,3 +87,30 @@ int is_valid_message(string msg)
 
     return TRUE;
 }
+
+// trims the input string (in place, by reference)
+void clean_sent_string(string& s)
+{
+    trim(s);
+}
+
+// trim from end of string (right)
+string& rtrim(string& s, const char* t)
+{
+    s.erase(s.find_last_not_of(t) + 1);
+    return s;
+}
+
+// trim from beginning of string (left)
+string& ltrim(string& s, const char* t)
+{
+    s.erase(0, s.find_first_not_of(t));
+    return s;
+}
+
+// trim from both ends of string (right then left)
+string& trim(string& s, const char* t)
+{
+    return ltrim(rtrim(s, t), t);
+}
+

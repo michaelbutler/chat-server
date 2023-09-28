@@ -33,7 +33,7 @@ using namespace std;
 // Map of room name => users list (string names CSV)
 map<string, string> rooms;
 
-// Map of user names to 1
+// Map of user names to their socket index number!
 map<string, int> users;
 
 
@@ -223,6 +223,7 @@ int main(int argc , char *argv[])
                     printf("Storing message (%d) in vector\n", (int)strlen(buffer));
                     // +1 to strlen to include the NULL terminator byte
                     sbuffer.assign(buffer, strlen(buffer));
+                    clean_sent_string(sbuffer);
                     chat_strings.push_back(RawMessage(i, sbuffer));
                     // memcpy(chat_strings[num_chat_strings], buffer, strlen(buffer) + 1);
                     num_chat_strings++;
@@ -291,12 +292,19 @@ int handle_message(RawMessage rm, int* csock)
     }
 
     // Create Room
-    // C00video_games
     if (command_type == 'C') {
         string room_name = rm.msg.substr(3);
         transform(room_name.begin(), room_name.end(), room_name.begin(), ::tolower);
         cout << "Creating new room: " << room_name << "\n";
         rooms.insert(pair<string, string>(room_name, ""));
+    }
+
+    if (command_type == 'U') {
+        string username = rm.msg.substr(3);
+        // TODO: move to helper function (tolowercase)
+        transform(username.begin(), username.end(), username.begin(), ::tolower);
+        cout << "Becoming username: " << username << "\n";
+        users.insert(pair<string, int>(username, rm.sender_num)); 
     }
 
     if (command_type == 'M') {
@@ -305,7 +313,7 @@ int handle_message(RawMessage rm, int* csock)
         for (int x = 0; x < MAX_CLIENTS; x++)
         {
             sd = csock[x];
-            if (sd != 0 && sd != rm.sender_num)
+            if (sd != 0 && x != rm.sender_num)
             {
                 printf("Sending data to client num. %d\n", x);
                 // sends strlen() number of bytes, which does NOT include \0 at the end
